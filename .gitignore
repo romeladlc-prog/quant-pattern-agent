@@ -7,6 +7,8 @@
 .agents/
 phase4_1_results/
 phase5_results/
+phase6_results/*
+!phase6_results/summary.md
 *.log
 *.tmp
 *.bak

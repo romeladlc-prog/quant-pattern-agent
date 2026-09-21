@@ -8,7 +8,7 @@
 | 4. Quant Models | Completada | Familias complementarias, sin señales. |
 | 4.1 Stability | Completada | Walk-forward y audit cross-asset. |
 | 5. External Context | Completada | VIX, liquidez, breadth y noticias, con límites de disponibilidad. |
-| 6. Market Structure | Pendiente | Sin implementación. |
+| 6. Market Structure | Completada | Swings causales, estructura, niveles, eventos y validación multi-timeframe, sin señales. |
 | 7. Pattern Engine | Pendiente | Sin implementación. |
 | 8. Backtesting | Pendiente | Sin implementación. |
 | 9. Supervised ML | Pendiente | Sin implementación. |

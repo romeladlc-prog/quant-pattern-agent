@@ -1,5 +1,11 @@
 # Changelog
 
+## Fase 6 — Market Structure Engine
+
+- Detectores causales de pivots, estructura, niveles, rupturas/fallos, compresión/expansión, aceleración, gaps y fuerza relativa.
+- Snapshot descriptivo por activo y timeframe; validación de ARM, NVDA, AMD, AVGO y QQQ en 4Hour, 1Day y 1Week, más ARM 1Hour.
+- Tests sintéticos y log/resumen de validación. Sin señales ni recomendaciones.
+
 ## 2026-09-20 — Documentación hasta Fase 5
 
 - Documentadas arquitectura, decisiones de modelos, fuentes, validaciones y roadmap.

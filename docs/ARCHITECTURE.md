@@ -11,7 +11,7 @@ Quant Model Layer
     ↓
 External Context Engine
     ↓
-Market Structure Engine (futuro)
+Market Structure Engine
     ↓
 Pattern Engine (futuro)
     ↓
@@ -35,6 +35,7 @@ El diagrama representa la evolución prevista. El visor de Fase 2 consume la Dat
 - `src/features/statistical_features.py`: features causales sobre NORMALIZED. Las ventanas incluyen la barra actual y anteriores, nunca futuras; los valores iniciales no definidos quedan `NaN`.
 - `src/models/`: familias separadas de retorno, volatilidad, estado espacial, regímenes y complejidad. Los change points son retrospectivos. `src/validation/` genera folds temporales auditables.
 - `src/context/`: VIX, macro, liquidez del activo, breadth y noticias. `MarketContextSnapshot` compone valores disponibles hasta un `as_of` con zona horaria. No crea señales.
+- `src/structure/`: describe pivots confirmados, HH/HL/LH/LL, niveles, rupturas, compresión, aceleración, gaps y fuerza relativa. Consume OHLCV NORMALIZED sin modificar `src/models/` ni `src/context/`. `MarketStructureSnapshot` es independiente por ticker y timeframe; no combina periodos ni emite señales.
 
 ## Regla temporal
 
