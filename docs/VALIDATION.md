@@ -1,6 +1,6 @@
 # Validaciones ejecutadas
 
-Última referencia: ejecuciones locales del **20 de septiembre de 2026** con Python 3.12 para Fases 1–6, y tests sin red del **2 de octubre de 2026** para Fase 6.1. Los logs y CSV resultantes se ignoran en Git para evitar datos temporales o sensibles. La tabla resume evidencia observada; repetir los scripts puede producir resultados distintos cuando las fuentes se actualicen.
+Última referencia: ejecuciones locales del **20 de septiembre de 2026** con Python 3.12 para Fases 1–6, y tests sin red del **2 de octubre de 2026** para Fases 6.1 y 7. Los logs y CSV resultantes se ignoran en Git para evitar datos temporales o sensibles. La tabla resume evidencia observada; repetir los scripts puede producir resultados distintos cuando las fuentes se actualicen.
 
 | Fase | Script | Activos / universo | Rango verificado | Resultado | Límite principal |
 |---|---|---|---|---|---|
@@ -12,6 +12,7 @@
 | 5 | `validate_context.py` | ARM, NVDA, AMD, AVGO, QQQ; cesta fija de 10 para breadth | OHLCV 2023-09-14 a 2026-09-18; VIX 1990-01-02 a 2026-09-18 | Código de salida 0; cinco snapshots; checks de disponibilidad, duplicados, unidades y snapshot histórico | Macro CSV solo actual sin `FRED_API_KEY`; titulares puntuables escasos. |
 | 6 | `validate_structure.py`; `python -m unittest discover -s tests` | ARM, NVDA, AMD, AVGO, QQQ en 4Hour, 1Day y 1Week; ARM 1Hour | 1Day/1Week 2023-09-14 a 2026-09-18; 4Hour 2026-04-23 a 2026-09-18 (Alpaca IEX) | 15 combinaciones + ARM 1Hour pasaron; 6 tests sintéticos OK. Detalle en `phase6_results/summary.md` | Rupturas contadas con niveles de muestra completa (corregido en 6.1); IEX: 548–690 gaps en 756 días. |
 | 6.1 | `python -m pytest -q` (local y GitHub Actions, red bloqueada) | Series sintéticas deterministas | — | 2026-10-02, Python 3.12.x, pandas 3.0.6: **44 passed**. `compileall` OK. `validate_structure.py` sin `.env` termina con «Faltan variables de entorno requeridas», sin resultados | La validación en vivo con niveles as-of **no se ha ejecutado**: requiere credenciales Alpaca. No hay resultados 6.1 sobre datos reales. |
+| 7 | `python -m pytest -q`; `validate_patterns.py --synthetic`; `validate_patterns.py` | Tests: escenarios sintéticos deterministas. Sintética: 4 series de 600 barras diarias + 1Week. Real: ARM, NVDA, AMD, AVGO, QQQ en 1Day/4Hour con 1Week y 1Hour de contexto | Sintético 2023-01-02 a 2025-04 (fechas ficticias) | 2026-10-02, Python 3.12.3: **88 passed** (44 de Fase 7). Sintética: código de salida 0; 4 × 8 400 resultados, 8 386 transiciones verificadas por serie, prefijo idéntico en 3 cortes por serie; 811 episodios; `score_max` p10/p50/p90 = 0.36/0.56/0.80; 62% de gaps descartados por filtro | **Validación con Alpaca no ejecutada**: requiere credenciales. Las métricas sintéticas no describen mercados ni utilidad predictiva. |
 
 ## Resultados que afectan decisiones
 
@@ -23,6 +24,8 @@
 - Fase 6: gaps diarios demasiado frecuentes con IEX; descriptor de bajo peso hasta recalibrar con feed consolidado.
 - Fase 6.1: añadir barras posteriores no cambia niveles ni breakouts ya fechados (tests de prefijo); `breakout_state` caduca tras `breakout_max_age_bars`; RS no rellena huecos; la última semana parcial queda `is_complete=False`; los errores de FRED/Alpaca no contienen claves.
 
-Pendiente con credenciales: repetir `validate_structure.py` (y, si se cambia el feed por defecto a IEX respecto a corridas previas, `validate_market_data.py`, `validate_models.py`, `validate_walk_forward.py` y `validate_context.py`) y actualizar esta tabla con los resultados reales.
+- Fase 7: la comprobación por prefijo detectó dos problemas, corregidos: Markov2 no determinista (statsmodels ≥ 0.15 ignora `np.random.seed`) y una fuga pequeña por límites de varianza de muestra completa en el filtro GARCH fijo de `arch`. Tras corregirlas, cero diferencias entre ejecuciones con datos hasta T y con datos futuros. La corrección de GARCH aplica solo al Pattern Engine; el cambio de Markov2 sí afecta a Fase 4/4.1, cuyas conclusiones de regímenes quedan pendientes de revalidación (ver [MODEL_DECISIONS.md](MODEL_DECISIONS.md)).
+
+Pendiente con credenciales: ejecutar `validate_patterns.py` (Fase 7), repetir `validate_structure.py`, repetir `validate_models.py`, `validate_walk_forward.py` y `summarize_phase4_1.py` por el cambio de Markov2 (y, si se cambia el feed por defecto a IEX respecto a corridas previas, también `validate_market_data.py` y `validate_context.py`) y actualizar esta tabla con los resultados reales.
 
 Para reproducir y revisar cada fold, consulta [PHASE4_1_SETUP.md](../PHASE4_1_SETUP.md). Para fechas de publicación y límites de contexto, consulta [DATA_SOURCES.md](DATA_SOURCES.md).

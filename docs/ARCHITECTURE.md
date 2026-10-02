@@ -13,7 +13,7 @@ External Context Engine
     ↓
 Market Structure Engine
     ↓
-Pattern Engine (futuro)
+Pattern Engine
     ↓
 Backtesting (futuro)
     ↓
@@ -36,6 +36,7 @@ El diagrama representa la evolución prevista. El visor de Fase 2 consume la Dat
 - `src/models/`: familias separadas de retorno, volatilidad, estado espacial, regímenes y complejidad. Los change points son retrospectivos. `model_status.py` declara para qué está validado cada modelo; las capas futuras deben consultar `validated_models()` en lugar de elegir modelos por nombre. `src/validation/` genera folds temporales auditables.
 - `src/context/`: VIX, macro, liquidez del activo, breadth y noticias. `MarketContextSnapshot` compone valores disponibles hasta un `as_of` con zona horaria. No crea señales.
 - `src/structure/`: describe pivots confirmados, HH/HL/LH/LL, niveles, rupturas, compresión, aceleración, gaps y fuerza relativa. Consume OHLCV NORMALIZED sin modificar `src/models/` ni `src/context/`. `MarketStructureSnapshot` es independiente por ticker y timeframe; no combina periodos ni emite señales. Los niveles históricos se reconstruyen as-of cada barra (`levels_history`, `build_levels_asof`) y los breakouts se comparan con los niveles de la barra anterior; `breakout_state` solo es activo dentro de `breakout_max_age_bars`.
+- `src/patterns/`: Pattern Engine. Construye un frame de evidencia causal por barra (features, estructura as-of, breakouts 6.1, contexto cuantitativo re-ajustado walk-forward y contexto externo as-of), y cada detector recorre las barras con una máquina de estados que solo ve filas 0..i (`History`). Solo el estado del timeframe superior entra al score; otros timeframes son contexto descriptivo. Produce `PatternResult` y una tabla de episodios; no emite señales.
 - `src/security.py`: redacción de credenciales en mensajes de error y logs.
 
 ## Regla temporal

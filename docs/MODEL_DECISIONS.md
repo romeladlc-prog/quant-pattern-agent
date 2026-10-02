@@ -46,4 +46,33 @@ La implementación de Kalman de Fase 4 no cambió: `fit_local_linear_trend` sigu
 | Semanas | Usar solo barras 1Week con `is_complete=True` en análisis histórico. | La última semana puede estar abierta cuando `end` cae antes del viernes 16:00 ET. |
 | Fuerza relativa | Unión por timestamp exacto sin relleno; filas con `benchmark_available=false` dan NaN. | Evita forward-fill implícito de pandas 2.x. |
 
+## Decisiones del Pattern Engine (Fase 7)
+
+| Componente | Decisión | Motivo o límite |
+|---|---|---|
+| Score | `convergence_score` en [0,1]: media ponderada de componentes, cada uno `S/(E+A)`. Pesos heurísticos en `src/patterns/config.py`, **no optimizados**. | Mide convergencia de evidencia, no probabilidad, retorno ni señal. Optimizarlo exigiría la Fase 8 con validación fuera de muestra. |
+| Evidencia ausente | `None`, excluida del componente; un componente sin evidencia evaluable se excluye del score. | La ausencia de contexto no se convierte en cero ni en penalización. |
+| Evidencia en contra | Siempre se calcula y se reporta en `evidence_against`; reduce el componente. | No se oculta evidencia contradictoria. |
+| Modelos de régimen | Solo HMM2 y Markov2 (`validated_models("regime_description")`); 3 estados nunca se consultan. | Decisión de Fase 4.1. |
+| Re-ajuste | Walk-forward por posición de barra (`min_train` 252 en 1Day, 150 en 4Hour; cada 63/42 barras); salidas filtradas, no suavizadas. | Prefijo invariante; coste razonable. |
+| Markov2 | `fit_markov_regimes` pasa `rng` a statsmodels ≥ 0.15. | Sin ello el ajuste cambiaba entre ejecuciones (hallado por los tests de prefijo). |
+| GARCH en patrones | Recursión GARCH(1,1) explícita con backcast del entrenamiento. | El filtro fijo de `arch` usa límites de varianza de toda la muestra (fuga de ~2e-7). |
+| Change points | PELT en ventana móvil de 120 barras, `min_size` 10, "reciente" ≤ 15 barras. | PELT completo es retrospectivo; la ventana móvil añade latencia explícita. |
+| Hurst y entropía | Solo evidencia opcional (peso 0.5) y nunca requerida. | Features descriptivas (Fase 4.1). |
+| Gaps | Evidencia auxiliar, peso 0.25, nunca requerida, solo si ≥ 0.5 ATR y ≥ 0.5%; se registran descartes. | Decisión de Fase 6 (ruido IEX). |
+| Mean reversion | Requiere z extremo **y** evidencia de agotamiento; con estructura y régimen persistentes el score se limita a 0.40 y no confirma. | Evitar activación fuerte contra tendencias persistentes. |
+| Divergencias | Una divergencia sola no confirma; hace falta ruptura de neckline. | Requisito de evidencia no divergente. |
+| Multi-timeframe | Solo el estado del timeframe superior entra al score (una evidencia de estructura); los demás son contexto descriptivo. | Sin score multi-timeframe optimizado todavía. |
+| Episodios abiertos | `is_open=True` en `pattern_events.csv`; su estado final es provisional. | La Fase 8 no debe tratarlos como cerrados. |
+
+### Revalidación pendiente de Fase 4/4.1 (tras Fase 7)
+
+Las conclusiones de GARCH y Markov2 de la tabla de Fase 4.1 se consideran **provisionales hasta repetir la validación con datos reales**. No hay resultados nuevos; solo se identifica qué puede cambiar:
+
+- **Markov2/Markov3** (`fit_markov_regimes`, usado por `validate_models.py` y `validate_walk_forward.py`): con statsmodels ≥ 0.15 ahora se pasa `rng=random_state`. Las corridas de Fase 4/4.1 con statsmodels ≥ 0.15 no eran reproducibles, así que convergencia, parámetros, estados y la fila de regímenes de `summarize_phase4_1.py` pueden cambiar. Con statsmodels < 0.15 el código no cambia.
+- **GARCH/EGARCH/GJR-GARCH en Fase 4/4.1** (`arch_one_step`): **no se modificó**. Sigue usando el filtro fijo de `arch`, cuyos límites de varianza usan toda la muestra suministrada (fuga estimada ~2e-7 en el Pattern Engine). La corrección causal de Fase 7 solo aplica a `src/patterns/quant_context.py`. Los RMSE 0.00490/0.00506 no deberían cambiar al repetir, pero conservan esa fuga mínima; corregirla en Fase 4 sería un cambio metodológico aparte, no hecho.
+- Sin cambios: AutoReg, ARIMA, HAR-RV, Kalman, HMM2/HMM3 y PELT (solo añaden `model_status`).
+
+Revalidar con `validate_models.py`, `validate_walk_forward.py` y `summarize_phase4_1.py` (ver [PHASE4_1_SETUP.md](../PHASE4_1_SETUP.md)) y comparar con la Fase 4.1 original.
+
 El `stability_score` de Fase 4.1 es técnico y usa criterios distintos para forecasts y diagnósticos. No se debe leer como probabilidad de acierto. El archivo local `phase4_1_results/stability_scores.csv` se regenera con `summarize_phase4_1.py`; no se versiona porque es un resultado de ejecución.
