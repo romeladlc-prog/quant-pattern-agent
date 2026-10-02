@@ -17,12 +17,22 @@ EVENT_COLUMNS = ["timestamp", "bar_index", "level", "level_type", "level_touch_c
                  "level_asof_timestamp", "direction", "state", "distance_atr",
                  "relative_volume", "outside_bars", "retest", "failure_bars",
                  "breakout_amplitude", "confidence"]
+# Numeric columns that may be absent (None when built). Fixed to float64 so a
+# missing value is always NaN; otherwise pandas keeps object/None when every
+# row is missing and float/NaN when some are present, and a prefix with no
+# failure yet would not compare equal to the same rows of a longer run.
+OPTIONAL_FLOAT_COLUMNS = ["relative_volume", "failure_bars"]
+
+
+def _events_frame(events: list[dict]) -> pd.DataFrame:
+    frame = pd.DataFrame(events, columns=EVENT_COLUMNS)
+    return frame.astype({c: "float64" for c in OPTIONAL_FLOAT_COLUMNS})
 
 
 def _scan(bars: pd.DataFrame, levels_before: Callable[[int], Iterable[dict]],
           min_atr_distance: float, min_relative_volume: float, confirm_bars: int,
           fail_within: int) -> pd.DataFrame:
-    if bars.empty: return pd.DataFrame(columns=EVENT_COLUMNS)
+    if bars.empty: return _events_frame([])
     av = atr(bars).to_numpy()
     rv = (bars.volume/bars.volume.shift().rolling(20, min_periods=5).mean()).to_numpy()
     closes, highs, lows = (bars[c].to_numpy(dtype=float) for c in ("close", "high", "low"))
@@ -65,7 +75,7 @@ def _scan(bars: pd.DataFrame, levels_before: Callable[[int], Iterable[dict]],
                         "state":"breakout_confirmed", "outside_bars":confirm_bars,
                         "retest":retest, "failure_bars":None,
                         "confidence":round(min(1.,.5+.25*min(distance,1)+.25*retest),3)})
-    return pd.DataFrame(events, columns=EVENT_COLUMNS).sort_values(
+    return _events_frame(events).sort_values(
         ["timestamp", "bar_index"], kind="mergesort").reset_index(drop=True)
 
 
@@ -79,7 +89,7 @@ def detect_breakouts(bars: pd.DataFrame, swings: pd.DataFrame | None = None,
 
     ``history`` may be a precomputed ``levels_history`` frame for these bars.
     """
-    if bars.empty: return pd.DataFrame(columns=EVENT_COLUMNS)
+    if bars.empty: return _events_frame([])
     if history is None:
         if swings is None:
             swings = confirmed_swings(bars, left_bars, right_bars)

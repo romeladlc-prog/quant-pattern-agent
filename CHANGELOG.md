@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-10-02 — Fase 6.1: corrección de dtype en `detect_breakouts`
+
+- `failure_bars` y `relative_volume` salen siempre como `float64` (ausente = NaN). Antes, un frame sin ningún fallo dejaba `failure_bars` como `object`/`None` y uno con fallos como `float64`/`NaN`, por lo que la comparación por prefijo de `validate_structure.py` fallaba (`None != nan`) aunque los eventos fueran idénticos. Sin cambios en la lógica de detección.
+- 4 tests nuevos (92 en total), incluido el caso `random_walk()` cortado en 30 barras.
+
 ## 2026-10-02 — Fase 7: Pattern Engine
 
 - `src/patterns/`: frame de evidencia causal por barra, contexto cuantitativo walk-forward (HMM2, Markov2, Kalman local level, GARCH, PELT en ventana móvil, Hurst/entropía) y contexto externo as-of.
