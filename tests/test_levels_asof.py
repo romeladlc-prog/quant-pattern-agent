@@ -86,3 +86,31 @@ def test_breakout_uses_level_known_before_crossing():
     assert not up.empty
     assert up.level.iloc[0] == pytest.approx(110.2)
     assert (up.level_asof_timestamp < up.timestamp).all()
+
+
+def test_prefix_without_failures_matches_full_run():
+    # Phase 6 live validation case: the prefix (cut 30) has only a candidate
+    # and a confirmation, so every failure_bars is missing; the full run also
+    # has fake breakouts. Both frames must use the same missing value.
+    bars = random_walk()
+    prefix = bars.iloc[:30].reset_index(drop=True)
+    early_prefix = detect_breakouts(prefix)
+    full = detect_breakouts(bars)
+    assert not early_prefix.state.str.startswith("fake").any()
+    assert full.state.str.startswith("fake").any()
+    early = full.loc[full.timestamp.le(prefix.timestamp.iloc[-1])].reset_index(drop=True)
+    assert len(early) == 2
+    pd.testing.assert_frame_equal(early_prefix, early)
+
+
+@pytest.mark.parametrize("cut", (0, 30, 160))
+def test_failure_bars_missing_only_without_failure(cut):
+    bars = random_walk().iloc[:cut].reset_index(drop=True)
+    events = detect_breakouts(bars)
+    assert events.failure_bars.dtype == "float64"
+    assert events.relative_volume.dtype == "float64"
+    fake = events.state.str.startswith("fake").astype(bool)
+    assert events.failure_bars.isna().eq(~fake).all()
+    failed = events.failure_bars[fake]
+    assert failed.eq(failed.round()).all() and failed.ge(1).all()
+    assert failed.eq(events.outside_bars[fake]).all()
