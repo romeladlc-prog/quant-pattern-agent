@@ -296,6 +296,13 @@ class PatternDetector:
         notes = list(notes)
         if missing_inputs:
             notes.append("not_evaluable:" + ",".join(missing_inputs))
+        unconverged = [model for model, flag in (
+            ("hmm2", context["regime"].get("hmm_fit_converged")),
+            ("markov2", context["regime"].get("markov_fit_converged")),
+            ("kalman_local_level", context["regime"].get("kalman_fit_converged")),
+            ("garch", context["volatility"].get("garch_fit_converged"))) if flag is False]
+        if unconverged:
+            notes.append("model_not_converged:" + ",".join(unconverged))
         details = {k: v for k, v in obs.details.items() if not k.startswith("_")}
         if ep is not None:
             details.update({k: v for k, v in ep.memory.items() if not k.startswith("_")})

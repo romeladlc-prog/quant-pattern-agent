@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-10-02 — Fase 7.1: causa raíz del fallo de prefijo con datos reales
+
+- Causa 1: un timeframe de contexto sin barras cerradas en T (4Hour/1Hour, descargados solo 400/90 días) se omitía en la ejecución hasta T y se adjuntaba en la completa, así que `mtf_context` cambiaba de claves en todas las barras pasadas. Ahora siempre se adjunta, con valores ausentes (`attach_empty_timeframe`).
+- Causa 2, oculta tras la 1: HMM2 no era reproducible bit a bit (KMeans de sklearn con OpenMP multihilo dentro de hmmlearn). `fit_hmm_regimes` ajusta con un hilo OpenMP.
+- `Model is not converging` (hmmlearn, EM con log-verosimilitud decreciente) no causa el fallo de prefijo, pero ya no pasa sin bandera: `fit_quality`/`seed_quality` en `fit_hmm_regimes`, columnas `*_fit_converged` por barra en el contexto cuantitativo, claves en `regime_context`/`volatility_context` y nota `model_not_converged:<modelos>`.
+- `validate_patterns.py --debug-prefix`: ante un fallo de prefijo informa del primer timestamp, patrón, campo e input divergente y su módulo, y relanza el mismo error.
+- `--synthetic` incluye contexto 4Hour/1Hour tardío (último 20% de SYN_A), que reproduce el fallo real con el código anterior.
+- 6 tests nuevos (98 en total). Detalle e impacto en [docs/phases/PHASE_7_1_PREFIX_FIX.md](docs/phases/PHASE_7_1_PREFIX_FIX.md).
+
 ## 2026-10-02 — Fase 6.1: corrección de dtype en `detect_breakouts`
 
 - `failure_bars` y `relative_volume` salen siempre como `float64` (ausente = NaN). Antes, un frame sin ningún fallo dejaba `failure_bars` como `object`/`None` y uno con fallos como `float64`/`NaN`, por lo que la comparación por prefijo de `validate_structure.py` fallaba (`None != nan`) aunque los eventos fueran idénticos. Sin cambios en la lógica de detección.

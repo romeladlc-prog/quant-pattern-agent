@@ -23,7 +23,8 @@ from .base import PatternResult, clean
 from .breakout import BreakoutDetector, FailedBreakoutDetector
 from .config import HIGHER_TIMEFRAME, TIMEFRAME_PREFIX
 from .divergence import DivergenceDetector
-from .evidence import MTF_COLUMNS, attach_timeframe, bar_close_times, build_evidence, complete_bars
+from .evidence import MTF_COLUMNS, attach_empty_timeframe, attach_timeframe, bar_close_times, \
+    build_evidence, complete_bars
 from .exhaustion import ExhaustionDetector
 from .external_context import build_external_context
 from .mean_reversion import MeanReversionDetector
@@ -95,11 +96,13 @@ def bar_contexts(row: dict, mtf: list[str]) -> dict:
     regime = {"label": _regime_label(row), "hmm2_p_high": clean(row.get("hmm_p_high")),
               "markov2_p_high": clean(row.get("markov_p_high")),
               **_pick(row, ("cp_rv20_recent", "cp_slope_recent", "hurst", "permutation_entropy",
-                            "quant_fit_index"))}
+                            "quant_fit_index", "hmm_fit_converged", "markov_fit_converged",
+                            "kalman_fit_converged"))}
     volatility = {"label": _volatility_label(row),
                   **_pick(row, ("realized_volatility_20", "rv20_percentile", "garch_vol",
                                 "garch_vol_ratio", "atr", "atr_expansion", "volatility_compression",
-                                "volatility_expansion", "compression_duration"))}
+                                "volatility_expansion", "compression_duration",
+                                "garch_fit_converged"))}
     structure = _pick(row, ("structural_state", "last_high", "last_low", "last_high_label",
                             "last_low_label", "nearest_support", "nearest_resistance",
                             "support_dist_atr", "resistance_dist_atr", "levels_asof_timestamp",
@@ -144,12 +147,19 @@ def run_pattern_engine(ticker: str, timeframe: str, bars: pd.DataFrame, *,
         external = build_external_context(bar_close_times(bars, timeframe), ticker, **external_inputs)
     bundle = build_evidence(bars, timeframe, benchmark=benchmark, quant=quant, external=external)
     frame = bundle.frame
-    attached = []
+    attached, with_data = [], []
     for other_tf, other_bars in (context_bars or {}).items():
-        if other_tf == timeframe or other_bars is None or complete_bars(other_bars).empty:
+        if other_tf == timeframe:
             continue
-        other = build_evidence(other_bars, other_tf, light=True).frame
-        frame = attach_timeframe(frame, other, other_tf)
+        # A requested timeframe keeps its columns (and its mtf_context key) even
+        # with no complete bars yet: whether it has data later must not change
+        # the shape of results stored for earlier bars.
+        if other_bars is None or complete_bars(other_bars).empty:
+            frame = attach_empty_timeframe(frame, other_tf)
+        else:
+            other = build_evidence(other_bars, other_tf, light=True).frame
+            frame = attach_timeframe(frame, other, other_tf)
+            with_data.append(other_tf)
         attached.append(other_tf)
     higher = HIGHER_TIMEFRAME.get(timeframe)
     column = f"{TIMEFRAME_PREFIX[higher]}_structural_state" if higher else None
@@ -160,8 +170,8 @@ def run_pattern_engine(ticker: str, timeframe: str, bars: pd.DataFrame, *,
     for detector, directions in detectors:
         for direction in directions:
             results += detector(direction, ticker, timeframe).run(rows, contexts)
-    meta = {**bundle.meta, "context_timeframes": attached, "higher_timeframe": higher,
-            "higher_timeframe_available": column in frame if column else False}
+    meta = {**bundle.meta, "context_timeframes": attached, "context_timeframes_with_data": with_data,
+            "higher_timeframe": higher, "higher_timeframe_available": higher in with_data}
     return PatternRun(ticker, timeframe, results, frame, episode_table(results), meta)
 
 

@@ -13,6 +13,10 @@ and their *filtered* outputs are used between refits:
 Only components marked validated in ``model_status`` are used: HMM2 and
 Markov2 for regimes, Kalman local level for the level, GARCH for volatility.
 Three-state models are never used here.
+
+A fit that does not converge cleanly is still used (no methodology change),
+but every bar it covers carries ``*_fit_converged = False`` and the refit is
+listed in ``attrs["fit_diagnostics"]``, so no state looks valid unflagged.
 """
 from __future__ import annotations
 
@@ -33,7 +37,12 @@ from src.models.state_space_models import fit_state_specification, filter_state_
 QUANT_COLUMNS = ["hmm_p_high", "hmm_p_high_lag", "markov_p_high", "markov_p_high_lag",
                  "kalman_level", "kalman_level_change", "kalman_level_change_lag",
                  "garch_vol", "garch_vol_ratio", "cp_rv20_recent", "cp_slope_recent",
-                 "cp_rv20_age", "cp_slope_age", "hurst", "permutation_entropy", "quant_fit_index"]
+                 "cp_rv20_age", "cp_slope_age", "hurst", "permutation_entropy", "quant_fit_index",
+                 "hmm_fit_converged", "markov_fit_converged", "kalman_fit_converged",
+                 "garch_fit_converged"]
+# Quality flag of the parameter set in force at each bar: True/False, NaN = no fit.
+FIT_FLAGS = ["hmm_fit_converged", "markov_fit_converged", "kalman_fit_converged",
+             "garch_fit_converged"]
 MODELS_USED = ("hmm2", "markov2", "kalman_local_level", "garch", "pelt", "hurst",
                "permutation_entropy")
 
@@ -127,9 +136,11 @@ def build_quant_context(bars: pd.DataFrame, config: QuantContextConfig | None = 
         raise RuntimeError("Kalman local level / GARCH not validated")
     n = len(bars)
     out = pd.DataFrame(np.nan, index=pd.RangeIndex(n), columns=QUANT_COLUMNS)
-    out[["cp_rv20_recent", "cp_slope_recent"]] = out[["cp_rv20_recent", "cp_slope_recent"]].astype(object)
+    objects = ["cp_rv20_recent", "cp_slope_recent"] + FIT_FLAGS
+    out[objects] = out[objects].astype(object)
     out.attrs["models_used"] = {name: model_status(name).as_dict() for name in MODELS_USED}
     out.attrs["warnings"] = []
+    out.attrs["fit_diagnostics"] = []
     if n == 0:
         return out
     features = calculate_statistical_features(bars)
@@ -155,6 +166,12 @@ def build_quant_context(bars: pd.DataFrame, config: QuantContextConfig | None = 
                     except Exception as error:  # a failed fit leaves NaN, never a fake value
                         out.attrs["warnings"].append(f"{key}@{r}: {type(error).__name__}")
                         continue
+                    converged = bool(fit["fit_quality"]["converged"] if key == "hmm"
+                                     else fit["converged"])
+                    out.loc[seg, f"{key}_fit_converged"] = converged
+                    out.attrs["fit_diagnostics"].append(
+                        {"refit": r, "model": f"{key}2", "converged": converged,
+                         **({"seeds": fit["seed_quality"]} if key == "hmm" else {})})
                     probability = fit["probabilities"][f"state_{_high_state(fit['stats'])}"]
                     by_position = probability.reindex(stamps[:end+1]).to_numpy()
                     out.loc[seg, f"{key}_p_high"] = by_position[seg]
@@ -164,6 +181,10 @@ def build_quant_context(bars: pd.DataFrame, config: QuantContextConfig | None = 
             if cfg.kalman:
                 try:
                     fit = fit_state_specification(close.iloc[:r+1], "local level")
+                    out.loc[seg, "kalman_fit_converged"] = fit["converged"]
+                    out.attrs["fit_diagnostics"].append(
+                        {"refit": r, "model": "kalman_local_level", "converged": fit["converged"],
+                         "boundary": fit["boundary"]})
                     level = filter_state_specification(fit, close.iloc[:end+1])["level"].to_numpy()
                     change = level - np.r_[np.full(lag, np.nan), level[:-lag]]
                     out.loc[seg, "kalman_level"] = level[seg]
@@ -176,6 +197,9 @@ def build_quant_context(bars: pd.DataFrame, config: QuantContextConfig | None = 
             if cfg.garch:
                 returns = feats.log_return
                 best = _fit_garch(returns.iloc[1:r+1].dropna())
+                out.loc[seg, "garch_fit_converged"] = best is not None
+                out.attrs["fit_diagnostics"].append(
+                    {"refit": r, "model": "garch", "converged": best is not None})
                 if best is None:
                     out.attrs["warnings"].append(f"garch@{r}: no converged fit")
                 else:

@@ -1,7 +1,9 @@
 """Retrospective change points and causally filtered, unlabeled regimes."""
 from __future__ import annotations
 
+from contextlib import contextmanager
 import inspect
+import logging
 import warnings
 
 import numpy as np
@@ -11,6 +13,7 @@ from scipy.special import logsumexp
 from scipy.stats import multivariate_normal
 from scipy.optimize import linear_sum_assignment
 from sklearn.preprocessing import StandardScaler
+from threadpoolctl import threadpool_limits
 from statsmodels.tsa.regime_switching.markov_regression import MarkovRegression
 
 from .model_status import model_status
@@ -129,6 +132,40 @@ def _hmm_forward(model, x: np.ndarray) -> np.ndarray:
     return probabilities
 
 
+class _Collect(logging.Handler):
+    def __init__(self):
+        super().__init__(logging.WARNING)
+        self.messages: list[str] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.messages.append(record.getMessage())
+
+
+@contextmanager
+def _hmmlearn_messages():
+    """Collect hmmlearn's ``Model is not converging`` log lines (EM log-likelihood
+    decreased) instead of letting them reach stderr unattributed."""
+    logger = logging.getLogger("hmmlearn")
+    handler, propagate = _Collect(), logger.propagate
+    logger.addHandler(handler)
+    logger.propagate = False
+    try:
+        yield handler.messages
+    finally:
+        logger.removeHandler(handler)
+        logger.propagate = propagate
+
+
+def _em_quality(model, decreases: int) -> dict:
+    """hmmlearn's ``monitor_.converged`` is also True when EM stops at n_iter or
+    when the log-likelihood went *down*; report those cases explicitly."""
+    monitor = model.monitor_
+    hit_max_iter = monitor.iter >= monitor.n_iter
+    return {"monitor_converged": bool(monitor.converged), "iterations": int(monitor.iter),
+            "hit_max_iter": bool(hit_max_iter), "loglik_decreases": int(decreases),
+            "converged": bool(monitor.converged) and not hit_max_iter and decreases == 0}
+
+
 def fit_hmm_regimes(train_features: pd.DataFrame, all_features: pd.DataFrame,
                     n_states: int = 2, random_state: int = 42) -> dict:
     """Gaussian HMM trained on standardized train features; filtered posteriors."""
@@ -147,19 +184,29 @@ def fit_hmm_regimes(train_features: pd.DataFrame, all_features: pd.DataFrame,
     for seed in (random_state, random_state + 1, random_state + 2):
         model = GaussianHMM(n_components=n_states, covariance_type="full", n_iter=200,
                             tol=1e-4, random_state=seed, min_covar=1e-4)
-        model.fit(x_train)
-        if not model.monitor_.converged:
+        # hmmlearn initialises means with sklearn KMeans, whose OpenMP reductions
+        # are not bit-reproducible across runs with several threads: identical
+        # training data could give parameters differing in the last bits. One
+        # OpenMP thread makes the fit deterministic (same algorithm and seed).
+        with _hmmlearn_messages() as messages, threadpool_limits(limits=1, user_api="openmp"):
+            model.fit(x_train)
+        quality = _em_quality(model, sum("not converging" in m for m in messages))
+        if not quality["monitor_converged"]:
             warnings.warn(f"HMM {n_states} seed {seed}: no convergió.", stacklevel=2)
+        elif not quality["converged"]:
+            warnings.warn(f"HMM {n_states} seed {seed}: EM sin convergencia limpia "
+                          f"(log-likelihood decreció {quality['loglik_decreases']} veces, "
+                          f"iteraciones {quality['iterations']}/{model.n_iter}).", stacklevel=2)
         candidates.append((model.score(x_train), model,
-                           _hmm_forward(model, x_train).argmax(axis=1)))
-    scores = [score for score, _, _ in candidates]
+                           _hmm_forward(model, x_train).argmax(axis=1), quality))
+    scores = [score for score, *_ in candidates]
     if max(scores) - min(scores) > max(10.0, abs(max(scores)) * 0.05):
         warnings.warn(f"HMM {n_states}: log-likelihood varía entre inicializaciones: {scores}",
                       stacklevel=2)
-    _, model, reference = max(candidates, key=lambda pair: pair[0])
+    _, model, reference, quality = max(candidates, key=lambda pair: pair[0])
     agreements = []
     label_changes = []
-    for _, _, labels in candidates:
+    for _, _, labels, _ in candidates:
         confusion = np.array([[(reference == i).__and__(labels == j).sum()
                                for j in range(n_states)] for i in range(n_states)])
         row, col = linear_sum_assignment(-confusion)
@@ -176,7 +223,8 @@ def fit_hmm_regimes(train_features: pd.DataFrame, all_features: pd.DataFrame,
             "states": states, "stats": stats, "train_loglik": model.score(x_train),
             "initialization_scores": scores, "assignment_agreement": agreements,
             "label_permutations": label_changes,
-            "converged": bool(model.monitor_.converged), "model_status": status}
+            "converged": bool(model.monitor_.converged), "fit_quality": quality,
+            "seed_quality": [q for *_, q in candidates], "model_status": status}
 
 
 def regime_changes(states: pd.Series) -> pd.DatetimeIndex:
