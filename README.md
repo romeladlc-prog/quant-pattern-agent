@@ -1,6 +1,6 @@
 # Quant Pattern Agent
 
-Sistema cuantitativo en desarrollo para estudiar patrones de mercado con horizonte de *swing trading*. El sistema está completado hasta la **Fase 6.1: hardening causal de Market Structure**. No genera señales de compra o venta, recomendaciones, Pattern Score ni órdenes.
+Sistema cuantitativo en desarrollo para estudiar patrones de mercado con horizonte de *swing trading*. El sistema está completado hasta la **Fase 7: Pattern Engine** (validado con tests sin red y una validación sintética; la validación con datos Alpaca está preparada y pendiente de credenciales). No genera señales de compra o venta, recomendaciones, retornos esperados ni órdenes: el score de patrón mide convergencia de evidencia, no probabilidad.
 
 ## Estado y arquitectura
 
@@ -12,6 +12,7 @@ Sistema cuantitativo en desarrollo para estudiar patrones de mercado con horizon
 | Quant Model Layer | Retorno, volatilidad, Kalman, complejidad, change points y regímenes. |
 | External Context Engine | VIX, liquidez macro y del activo, amplitud de una cesta fija y noticias. |
 | Market Structure Engine | Pivots confirmados, HH/HL/LH/LL, niveles as-of, rupturas/fallos, compresión, aceleración, gaps y fuerza relativa. Fase 6.1: niveles históricos causales, recencia de `breakout_state`, semanas `is_complete`, feed único y metadata de modelos. |
+| Pattern Engine | Patrones compuestos causales (agotamiento, breakout, failed breakout, mean reversion, continuación, transición de régimen, divergencias) con máquina de estados, evidencia a favor/en contra y `convergence_score`. Ver [Fase 7](docs/phases/PHASE_7_PATTERN_ENGINE.md). |
 
 Las capas futuras figuran en [docs/ROADMAP.md](docs/ROADMAP.md). La [arquitectura](docs/ARCHITECTURE.md) explica los límites entre capas y RAW frente a NORMALIZED.
 
@@ -66,7 +67,10 @@ Validaciones con datos reales (requieren `.env`):
 .\.venv312\Scripts\python.exe summarize_phase4_1.py
 .\.venv312\Scripts\python.exe validate_context.py
 .\.venv312\Scripts\python.exe validate_structure.py
+.\.venv312\Scripts\python.exe validate_patterns.py
 ```
+
+`validate_patterns.py --synthetic` ejecuta los mismos controles de Fase 7 (estados, timestamps, prefijo) sin red ni credenciales, sobre series sintéticas; sus métricas no describen mercados.
 
 Los scripts consultan fuentes externas y pueden tardar varios minutos. El audit walk-forward usa ARM, NVDA, AMD, AVGO y QQQ. Los resultados generados, CSV y logs son locales e ignorados por Git; [docs/VALIDATION.md](docs/VALIDATION.md) resume las últimas ejecuciones verificadas. Los parámetros de ventanas están en [PHASE4_1_SETUP.md](PHASE4_1_SETUP.md).
 
@@ -74,4 +78,4 @@ Los scripts consultan fuentes externas y pueden tardar varios minutos. El audit 
 
 Alpaca aporta OHLCV y noticias; Cboe aporta VIX; FRED/ALFRED aporta series monetarias y tipos. La amplitud usa una cesta fija de diez acciones, **no** el Nasdaq 100 completo. [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md) documenta frecuencia, timestamps y disponibilidad.
 
-Las conclusiones actuales están en [docs/MODEL_DECISIONS.md](docs/MODEL_DECISIONS.md) y en código en `src/models/model_status.py`. AutoReg y ARIMA siguen como benchmarks; GARCH es la referencia principal de volatilidad por ahora. Las noticias tienen poca cobertura de titulares puntuables, y la liquidez macro histórica **no es apta para backtesting** sin vintages apropiados. Los gaps con IEX son ruidosos y no deben pesar en capas futuras sin recalibración. No se han implementado Pattern Engine, backtesting, ML supervisado ni Ensemble.
+Las conclusiones actuales están en [docs/MODEL_DECISIONS.md](docs/MODEL_DECISIONS.md) y en código en `src/models/model_status.py`. AutoReg y ARIMA siguen como benchmarks; GARCH es la referencia principal de volatilidad por ahora. Las noticias tienen poca cobertura de titulares puntuables, y la liquidez macro histórica **no es apta para backtesting** sin vintages apropiados. Los gaps con IEX son ruidosos y no deben pesar en capas futuras sin recalibración. No se han implementado backtesting, ML supervisado ni Ensemble.

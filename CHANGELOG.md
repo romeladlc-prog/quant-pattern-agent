@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-10-02 — Fase 7: Pattern Engine
+
+- `src/patterns/`: frame de evidencia causal por barra, contexto cuantitativo walk-forward (HMM2, Markov2, Kalman local level, GARCH, PELT en ventana móvil, Hurst/entropía) y contexto externo as-of.
+- Detectores: agotamiento alcista/bajista, breakout (con subtipos), failed breakout, mean reversion, continuación de tendencia, transición de régimen y divergencias, con máquina de estados determinista (`inactive`→`candidate`→`developing`→`confirmed`/`invalidated`/`expired`).
+- `PatternResult` con `convergence_score` en [0,1] por componentes, evidencia a favor/en contra y contextos; tabla de episodios `phase7_results/pattern_events.csv` y métricas descriptivas.
+- `validate_patterns.py` (Alpaca o `--synthetic`) con comprobación de leakage por prefijo.
+- Corrección: `fit_markov_regimes` pasa `rng` a statsmodels ≥ 0.15 (antes no era determinista). El contexto GARCH usa una recursión causal explícita en lugar del filtro fijo de `arch`, cuyos límites de varianza usan toda la muestra.
+- 44 tests nuevos de Fase 7 (88 en total) y paso de validación sintética en CI.
+
 ## 2026-10-02 — Fase 6.1: hardening causal y sincronización documental
 
 - Niveles históricos as-of (`levels_history`, `build_levels_asof`); `detect_breakouts` compara cada cruce con los niveles conocidos al cierre de la barra anterior. `detect_breakouts_fixed_levels` para niveles externos.

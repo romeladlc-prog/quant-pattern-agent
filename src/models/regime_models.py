@@ -1,6 +1,7 @@
 """Retrospective change points and causally filtered, unlabeled regimes."""
 from __future__ import annotations
 
+import inspect
 import warnings
 
 import numpy as np
@@ -85,7 +86,10 @@ def fit_markov_regimes(train_features: pd.DataFrame, all_features: pd.DataFrame,
     previous_rng = np.random.get_state()
     try:
         np.random.seed(random_state)
-        result = model.fit(em_iter=20, search_reps=search_reps, search_iter=20, disp=False)
+        # statsmodels >= 0.15 draws search starts from its own ``rng``; without it
+        # the global seed is ignored and fits differ run to run.
+        rng = {"rng": random_state} if "rng" in inspect.signature(model.fit).parameters else {}
+        result = model.fit(em_iter=20, search_reps=search_reps, search_iter=20, disp=False, **rng)
     finally:
         np.random.set_state(previous_rng)
     if not result.mle_retvals.get("converged", False):
