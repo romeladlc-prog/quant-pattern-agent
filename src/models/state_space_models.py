@@ -7,6 +7,11 @@ import numpy as np
 import pandas as pd
 from statsmodels.tsa.statespace.structural import UnobservedComponents
 
+from .model_status import model_status
+
+STATUS_NAMES = {"local level": "kalman_local_level",
+                "local linear trend": "kalman_local_linear_trend"}
+
 
 def fit_local_linear_trend(train_close: pd.Series) -> dict:
     """Estimate observation, level and slope noise using training prices only."""
@@ -18,7 +23,8 @@ def fit_local_linear_trend(train_close: pd.Series) -> dict:
     if any(value < 1e-10 for value in result.params):
         warnings.warn("Kalman: alguna varianza estimada está en el límite cero.", stacklevel=2)
     return {"result": result, "params": result.params, "aic": result.aic,
-            "bic": result.bic}
+            "bic": result.bic,
+            "model_status": model_status("kalman_local_linear_trend").as_dict()}
 
 
 def filter_local_linear_trend(fit: dict, observed_close: pd.Series) -> pd.DataFrame:
@@ -47,7 +53,8 @@ def fit_state_specification(train_close: pd.Series, specification: str = "local 
     boundary = bool((params < 1e-8).any())
     return {"result": result, "params": params, "specification": specification,
             "converged": bool(result.mle_retvals.get("converged", False)),
-            "boundary": boundary, "aic": result.aic, "bic": result.bic}
+            "boundary": boundary, "aic": result.aic, "bic": result.bic,
+            "model_status": model_status(STATUS_NAMES[specification]).as_dict()}
 
 
 def filter_state_specification(fit: dict, observed_close: pd.Series) -> pd.DataFrame:

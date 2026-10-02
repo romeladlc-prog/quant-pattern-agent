@@ -7,16 +7,21 @@ from pathlib import Path
 from typing import Union
 
 import pandas as pd
+from alpaca.data.enums import DataFeed
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 from dotenv import load_dotenv
+
+from src.security import redact_secrets
 
 DateLike = Union[str, date, datetime, pd.Timestamp]
 SUPPORTED_TIMEFRAMES = {"15Min", "1Hour", "4Hour", "1Day", "1Week"}
 SESSIONS = {"regular", "extended"}
 NY = "America/New_York"
 COLUMNS = ["timestamp", "open", "high", "low", "close", "volume"]
+WEEKLY_COLUMNS = COLUMNS + ["source_last_timestamp", "source_last_session_close", "is_complete"]
+DEFAULT_FEED = "iex"
 
 
 def _as_utc(value: DateLike, name: str) -> pd.Timestamp:
@@ -44,27 +49,50 @@ def _settings() -> tuple[str, str]:
     return values[0], values[1]
 
 
+def data_feed(value: str | None = None) -> str:
+    """Single feed setting: explicit value, else ALPACA_DATA_FEED, else IEX.
+
+    IEX is the default because every Alpaca plan can query it; SIP is never
+    assumed. Pass an explicit value only for a deliberate feed comparison.
+    """
+    load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+    name = (value or os.getenv("ALPACA_DATA_FEED", "") or DEFAULT_FEED).strip().lower()
+    valid = {feed.value for feed in DataFeed}
+    if name not in valid:
+        raise ValueError(f"ALPACA_DATA_FEED inválido: {name!r}. Opciones: {sorted(valid)}")
+    return name
+
+
 def _alpaca_timeframe(value: str) -> TimeFrame:
     return {"15Min": TimeFrame(15, TimeFrameUnit.Minute), "1Hour": TimeFrame.Hour,
             "1Day": TimeFrame.Day, "1Week": TimeFrame.Week}[value]
 
 
 def download_raw_bars(symbol: str, start: DateLike, end: DateLike,
-                      timeframe: str = "1Day") -> pd.DataFrame:
-    """Return Alpaca response.df unchanged, including its index and inclusive end."""
+                      timeframe: str = "1Day", feed: str | None = None) -> pd.DataFrame:
+    """Return Alpaca response.df unchanged, including its index and inclusive end.
+
+    The feed used is recorded in ``attrs["feed"]``; see ``data_feed``.
+    """
     if not symbol or not symbol.strip():
         raise ValueError("El símbolo no puede estar vacío.")
     if timeframe not in {"15Min", "1Hour", "1Day", "1Week"}:
         raise ValueError("RAW solo admite 15Min, 1Hour, 1Day o 1Week.")
     first, last = _bounds(start, end)
     key, secret = _settings()
+    source = data_feed(feed)
     request = StockBarsRequest(symbol_or_symbols=symbol.strip().upper(),
                                timeframe=_alpaca_timeframe(timeframe),
-                               start=first.to_pydatetime(), end=last.to_pydatetime())
+                               start=first.to_pydatetime(), end=last.to_pydatetime(),
+                               feed=DataFeed(source))
     try:
-        return StockHistoricalDataClient(key, secret).get_stock_bars(request).df
+        raw = StockHistoricalDataClient(key, secret).get_stock_bars(request).df
     except Exception as error:
-        raise RuntimeError(f"No se pudieron descargar datos de Alpaca para {symbol.strip().upper()}: {error}") from error
+        message = redact_secrets(str(error))
+        raise RuntimeError(f"No se pudieron descargar datos de Alpaca ({source}) para "
+                           f"{symbol.strip().upper()}: {message}") from None
+    raw.attrs["feed"] = source
+    return raw
 
 
 def _frame(raw: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
@@ -127,26 +155,36 @@ def _intraday_aggregate(bars: pd.DataFrame, session: str, hours: int) -> pd.Data
     return pd.DataFrame(records).sort_values("timestamp").reset_index(drop=True)
 
 
-def _weekly(bars: pd.DataFrame, end: pd.Timestamp) -> pd.DataFrame:
-    """Aggregate only fully closed 1Day bars by New York trading week."""
+def _weekly(bars: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
+    """Aggregate only fully closed 1Day bars by New York trading week.
+
+    is_complete is True only when the request covers the whole week: start is
+    no later than Monday 00:00 ET and end is no earlier than Friday 16:00 ET.
+    Without an exchange calendar a holiday Friday is treated conservatively:
+    that week stays incomplete until Friday 16:00 ET.
+    """
     if bars.empty:
-        return pd.DataFrame(columns=COLUMNS + ["source_last_timestamp", "source_last_session_close"])
+        return pd.DataFrame(columns=WEEKLY_COLUMNS)
     local_dates = bars["timestamp"].dt.tz_convert(NY).dt.date
     closes = local_dates.map(lambda day: pd.Timestamp(datetime.combine(day, time(16)), tz=NY).tz_convert("UTC"))
     bars = bars.loc[closes.le(end)].reset_index(drop=True)
     if bars.empty:
-        return pd.DataFrame(columns=COLUMNS + ["source_last_timestamp", "source_last_session_close"])
+        return pd.DataFrame(columns=WEEKLY_COLUMNS)
     local_dates = bars["timestamp"].dt.tz_convert(NY).dt.date
     monday = local_dates.map(lambda day: day - timedelta(days=day.weekday()))
     records = []
-    for _, window in bars.groupby(monday, sort=True):
+    for week, window in bars.groupby(monday, sort=True):
         record = _aggregate(window, window["timestamp"].iloc[0])
         record["source_last_timestamp"] = window["timestamp"].iloc[-1]
         last_day = window["timestamp"].iloc[-1].tz_convert(NY).date()
         record["source_last_session_close"] = pd.Timestamp(
             datetime.combine(last_day, time(16)), tz=NY).tz_convert("UTC")
+        week_open = pd.Timestamp(datetime.combine(week, time(0)), tz=NY).tz_convert("UTC")
+        week_close = pd.Timestamp(datetime.combine(week + timedelta(days=4), time(16)),
+                                  tz=NY).tz_convert("UTC")
+        record["is_complete"] = bool(start <= week_open and end >= week_close)
         records.append(record)
-    return pd.DataFrame(records).reset_index(drop=True)
+    return pd.DataFrame(records, columns=WEEKLY_COLUMNS).reset_index(drop=True)
 
 
 def normalize_bars(raw: pd.DataFrame, start: DateLike, end: DateLike,
@@ -163,7 +201,7 @@ def normalize_bars(raw: pd.DataFrame, start: DateLike, end: DateLike,
     first, last = _bounds(start, end)
     bars = _frame(raw, first, last)
     if timeframe == "1Week":
-        return _weekly(bars, last)
+        return _weekly(bars, first, last)
     if timeframe == "1Day":
         return bars
     bars = _session_filter(bars, session)
@@ -173,8 +211,12 @@ def normalize_bars(raw: pd.DataFrame, start: DateLike, end: DateLike,
 
 
 def download_historical_bars(symbol: str, start: DateLike, end: DateLike,
-                             timeframe: str = "1Day", session: str = "regular") -> pd.DataFrame:
-    """Download NORMALIZED [start, end) bars; regular is the model default."""
+                             timeframe: str = "1Day", session: str = "regular",
+                             feed: str | None = None) -> pd.DataFrame:
+    """Download NORMALIZED [start, end) bars; regular is the model default.
+
+    ``feed`` overrides ALPACA_DATA_FEED only for explicit feed comparisons.
+    """
     if timeframe not in SUPPORTED_TIMEFRAMES or session not in SESSIONS:
         raise ValueError("Timeframe o sesión no soportado.")
     if timeframe in {"1Day", "1Week"} and session != "regular":
@@ -182,5 +224,7 @@ def download_historical_bars(symbol: str, start: DateLike, end: DateLike,
     source = ("1Day" if timeframe == "1Week" else
               "15Min" if session == "regular" and timeframe in {"1Hour", "4Hour"} else
               "1Hour" if timeframe == "4Hour" else timeframe)
-    raw = download_raw_bars(symbol, start, end, source)
-    return normalize_bars(raw, start, end, timeframe, session)
+    raw = download_raw_bars(symbol, start, end, source, feed)
+    bars = normalize_bars(raw, start, end, timeframe, session)
+    bars.attrs["feed"] = raw.attrs.get("feed")
+    return bars

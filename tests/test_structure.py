@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 
 from src.structure.acceleration import acceleration_features
-from src.structure.breakouts import detect_breakouts
+from src.structure.breakouts import detect_breakouts_fixed_levels
 from src.structure.compression import compression_features
 from src.structure.gaps import detect_gaps
 from src.structure.relative_strength import relative_strength
@@ -52,10 +52,10 @@ class StructureTests(unittest.TestCase):
         prefix=[100.]*25
         confirmed=bars_from_close(prefix+[102,103,104],volumes=[1000.]*25+[3000.]*3)
         levels=fake_levels(101.,confirmed.timestamp.iloc[20])
-        events=detect_breakouts(confirmed,levels,confirm_bars=2)
+        events=detect_breakouts_fixed_levels(confirmed,levels,confirm_bars=2)
         self.assertIn("breakout_confirmed",set(events.state))
         failed=bars_from_close(prefix+[102,100,99],volumes=[1000.]*25+[3000.]*3)
-        events=detect_breakouts(failed,levels)
+        events=detect_breakouts_fixed_levels(failed,levels)
         fake=events.loc[events.state.eq("fake_breakout_up")]
         self.assertEqual(int(fake.iloc[0].failure_bars),1)
         self.assertEqual(fake.iloc[0].timestamp,failed.timestamp.iloc[26])

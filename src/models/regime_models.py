@@ -12,8 +12,18 @@ from scipy.optimize import linear_sum_assignment
 from sklearn.preprocessing import StandardScaler
 from statsmodels.tsa.regime_switching.markov_regression import MarkovRegression
 
+from .model_status import model_status
+
 
 REGIME_INPUTS = ["log_return", "realized_volatility_20", "rolling_slope_20"]
+
+
+def _regime_status(family: str, n_states: int) -> dict:
+    """Three-state fits still run, but are flagged experimental (Phase 4.1)."""
+    status = model_status(f"{family}{n_states}")
+    if status.experimental:
+        warnings.warn(f"{family.upper()}{n_states}: experimental, {status.warning}.", stacklevel=3)
+    return status.as_dict()
 
 
 def detect_change_points(series: pd.Series, penalty: float = 3.0,
@@ -68,6 +78,7 @@ def fit_markov_regimes(train_features: pd.DataFrame, all_features: pd.DataFrame,
     """Markov switching on returns; frozen train parameters and filtered posteriors."""
     if n_states not in (2, 3):
         raise ValueError("Solo 2 o 3 regímenes.")
+    status = _regime_status("markov", n_states)
     train = (train_features["log_return"].dropna() * 100)
     full = (all_features["log_return"].dropna() * 100)
     model = MarkovRegression(train, k_regimes=n_states, trend="c", switching_variance=True)
@@ -92,7 +103,8 @@ def fit_markov_regimes(train_features: pd.DataFrame, all_features: pd.DataFrame,
     return {"result": result, "probabilities": probabilities,
             "states": pd.Series(states, index=full.index), "stats": stats,
             "aic": result.aic, "bic": result.bic,
-            "converged": bool(result.mle_retvals.get("converged", False))}
+            "converged": bool(result.mle_retvals.get("converged", False)),
+            "model_status": status}
 
 
 def _hmm_forward(model, x: np.ndarray) -> np.ndarray:
@@ -122,6 +134,7 @@ def fit_hmm_regimes(train_features: pd.DataFrame, all_features: pd.DataFrame,
         raise RuntimeError("hmmlearn no está instalado para este intérprete") from error
     if n_states not in (2, 3):
         raise ValueError("Solo 2 o 3 regímenes.")
+    status = _regime_status("hmm", n_states)
     train = train_features[REGIME_INPUTS].dropna()
     full = all_features[REGIME_INPUTS].dropna()
     scaler = StandardScaler().fit(train)
@@ -159,7 +172,7 @@ def fit_hmm_regimes(train_features: pd.DataFrame, all_features: pd.DataFrame,
             "states": states, "stats": stats, "train_loglik": model.score(x_train),
             "initialization_scores": scores, "assignment_agreement": agreements,
             "label_permutations": label_changes,
-            "converged": bool(model.monitor_.converged)}
+            "converged": bool(model.monitor_.converged), "model_status": status}
 
 
 def regime_changes(states: pd.Series) -> pd.DatetimeIndex:

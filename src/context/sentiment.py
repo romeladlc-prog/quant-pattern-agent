@@ -13,6 +13,8 @@ from alpaca.data.historical.news import NewsClient
 from alpaca.data.requests import NewsRequest
 from dotenv import load_dotenv
 
+from src.security import redact_secrets
+
 VIX_URL = "https://cdn-api.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv"
 POSITIVE = frozenset({"beats", "beat", "growth", "surge", "surges", "upgrade", "upgrades",
                       "raises", "raised", "record", "profit", "profits", "strong", "gain", "gains"})
@@ -57,7 +59,11 @@ def fetch_alpaca_news(ticker: str, start: datetime, end: datetime) -> pd.DataFra
         raise ValueError("Missing Alpaca credentials")
     request = NewsRequest(symbols=ticker, start=start, end=end, sort="asc",
                           include_content=False)
-    news = NewsClient(api_key=key, secret_key=secret).get_news(request)
+    try:
+        news = NewsClient(api_key=key, secret_key=secret).get_news(request)
+    except Exception as error:
+        raise RuntimeError(f"Alpaca news request failed for {ticker}: "
+                           f"{redact_secrets(str(error), (key, secret))}") from None
     articles = news.data.get("news", []) if hasattr(news, "data") else news.get("news", [])
     records = []
     for article in articles:
