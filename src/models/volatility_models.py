@@ -8,9 +8,12 @@ import pandas as pd
 from arch import arch_model
 from statsmodels.api import OLS, add_constant
 
+from .model_status import model_status
+
 
 ARCH_SPECS = {"GARCH": ("GARCH", 0), "EGARCH": ("EGARCH", 0),
               "GJR-GARCH": ("GARCH", 1)}
+STATUS_NAMES = {"GARCH": "garch", "EGARCH": "egarch", "GJR-GARCH": "gjr_garch"}
 
 
 def fit_arch_families(train_log_return: pd.Series) -> dict:
@@ -38,7 +41,8 @@ def fit_arch_families(train_log_return: pd.Series) -> dict:
                           "vol_spec": vol, "asymmetry": asymmetry,
                           "aic": result.aic, "bic": result.bic,
                           "conditional_volatility": result.conditional_volatility / 100,
-                          "standardized_residuals": result.std_resid}
+                          "standardized_residuals": result.std_resid,
+                          "model_status": model_status(STATUS_NAMES[name]).as_dict()}
         else:
             warnings.warn(f"{name}: ningún ajuste utilizable.", stacklevel=2)
     return fits
@@ -84,7 +88,8 @@ def fit_har_rv(train_rv: pd.Series) -> dict:
     if np.linalg.cond(x.to_numpy()) > 1e8:
         warnings.warn("HAR-RV: predictores casi singulares.", stacklevel=2)
     return {"result": result, "residuals": result.resid,
-            "aic": result.aic, "bic": result.bic}
+            "aic": result.aic, "bic": result.bic,
+            "model_status": model_status("har_rv").as_dict()}
 
 
 def har_one_step(fit: dict, observed_rv: pd.Series) -> pd.Series:

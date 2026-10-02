@@ -9,7 +9,8 @@
 | 4.1 Stability | Completada | Walk-forward y audit cross-asset. |
 | 5. External Context | Completada | VIX, liquidez, breadth y noticias, con límites de disponibilidad. |
 | 6. Market Structure | Completada | Swings causales, estructura, niveles, eventos y validación multi-timeframe, sin señales. |
-| 7. Pattern Engine | Pendiente | Sin implementación. |
+| 6.1 Hardening | Completada (tests sin red) | Niveles y breakouts as-of, recencia de breakout, RS sin relleno, semanas `is_complete`, feed único, metadata de modelos, redacción de claves, CI. Validación en vivo pendiente de credenciales. |
+| 7. Pattern Engine | Pendiente | Sin implementación. Debe consumir solo niveles as-of y eventos con `confirmed_at`/`available_at`. |
 | 8. Backtesting | Pendiente | Sin implementación. |
 | 9. Supervised ML | Pendiente | Sin implementación. |
 | 10. Ensemble | Pendiente | Sin implementación. |

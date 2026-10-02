@@ -10,6 +10,8 @@ import numpy as np
 import pandas as pd
 import requests
 
+from src.security import redact_secrets
+
 
 @dataclass(frozen=True)
 class FredSeries:
@@ -30,6 +32,26 @@ FRED_SERIES = {
 }
 
 
+FRED_OBSERVATIONS_URL = "https://api.stlouisfed.org/fred/series/observations"
+
+
+def _fred_get(url: str, params: dict, timeout: int, secret: str | None = None) -> requests.Response:
+    """GET whose failures never expose the key.
+
+    FRED only accepts api_key as a query parameter, so requests puts it in the
+    URL that HTTPError and connection errors print. Messages are redacted and
+    the original exception is not chained, so tracebacks cannot show it either.
+    """
+    try:
+        response = requests.get(url, params=params, timeout=timeout)
+        response.raise_for_status()
+        return response
+    except requests.RequestException as error:
+        extra = (secret,) if secret else ()
+        raise RuntimeError(f"FRED request failed for {params.get('series_id') or params.get('id')}: "
+                           f"{redact_secrets(str(error), extra)}") from None
+
+
 def fetch_fred_series(name: str, start: str, api_key: str | None = None,
                       timeout: int = 30) -> pd.DataFrame:
     """ALFRED vintages if keyed; otherwise current-revision CSV, current use only.
@@ -40,12 +62,11 @@ def fetch_fred_series(name: str, start: str, api_key: str | None = None,
     spec = FRED_SERIES[name]
     key = api_key or os.getenv("FRED_API_KEY")
     if key:
-        response = requests.get("https://api.stlouisfed.org/fred/series/observations",
-            params={"series_id": spec.series_id, "api_key": key, "file_type": "json",
-                    "observation_start": start, "realtime_start": start,
-                    "realtime_end": datetime.now(timezone.utc).date().isoformat(),
-                    "limit": 100000}, timeout=timeout)
-        response.raise_for_status()
+        response = _fred_get(FRED_OBSERVATIONS_URL,
+            {"series_id": spec.series_id, "api_key": key, "file_type": "json",
+             "observation_start": start, "realtime_start": start,
+             "realtime_end": datetime.now(timezone.utc).date().isoformat(),
+             "limit": 100000}, timeout, key)
         observations = response.json()["observations"]
         rows = []
         for item in observations:
@@ -58,9 +79,8 @@ def fetch_fred_series(name: str, start: str, api_key: str | None = None,
                          "value": float(value), "unit": spec.unit, "source": spec.series_id,
                          "asof_safe": True})
         return pd.DataFrame(rows)
-    response = requests.get("https://fred.stlouisfed.org/graph/fredgraph.csv",
-                            params={"id": spec.series_id, "cosd": start}, timeout=timeout)
-    response.raise_for_status()
+    response = _fred_get("https://fred.stlouisfed.org/graph/fredgraph.csv",
+                         {"id": spec.series_id, "cosd": start}, timeout)
     frame = pd.read_csv(StringIO(response.text))
     if frame.empty:
         return pd.DataFrame()

@@ -8,6 +8,8 @@ import pandas as pd
 from statsmodels.tsa.ar_model import AutoReg
 from statsmodels.tsa.arima.model import ARIMA
 
+from .model_status import model_status
+
 
 def fit_autoreg(train: pd.Series, max_lags: int = 10, criterion: str = "aic") -> dict:
     """Select lag count 1..max_lags with a common hold-back sample."""
@@ -25,7 +27,8 @@ def fit_autoreg(train: pd.Series, max_lags: int = 10, criterion: str = "aic") ->
         raise RuntimeError("Ningún AutoReg pudo ajustarse.")
     _, lag, result = min(candidates, key=lambda item: item[0])
     return {"result": result, "lags": lag, "aic": result.aic, "bic": result.bic,
-            "residuals": result.resid}
+            "residuals": result.resid, "benchmark_only": True,
+            "model_status": model_status("autoreg").as_dict()}
 
 
 def autoreg_one_step(fit: dict, observed: pd.Series) -> pd.Series:
@@ -68,7 +71,8 @@ def fit_arima_benchmark(train: pd.Series, p_values=range(6), d_values=range(2),
     if failed:
         warnings.warn(f"ARIMA: {failed} combinaciones fallaron o no convergieron.", stacklevel=2)
     return {"result": result, "order": order, "aic": result.aic, "bic": result.bic,
-            "residuals": result.resid, "failed": failed}
+            "residuals": result.resid, "failed": failed, "benchmark_only": True,
+            "model_status": model_status("arima").as_dict()}
 
 
 def arima_one_step(fit: dict, test: pd.Series) -> pd.Series:
