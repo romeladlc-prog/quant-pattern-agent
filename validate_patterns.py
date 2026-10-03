@@ -21,7 +21,7 @@ import pandas as pd
 
 from src.patterns import QuantContextConfig, describe_patterns, run_pattern_engine
 from src.patterns.checks import check_results, prefix_check
-from src.patterns.diagnostics import diagnose_prefix, format_report
+from src.patterns.diagnostics import diagnose_prefix, external_rows_report, format_report
 from src.patterns.evidence import bar_close_times, complete_bars
 from src.security import redact_secrets
 
@@ -76,12 +76,17 @@ def validate(ticker, timeframe, bars, benchmark, context, external, lines, cuts=
 
         def remembered(stamp):
             last["run"] = prefix_run(stamp)
+            last["stamp"] = stamp
             return last["run"]
         try:
             reports = prefix_check(run, remembered, positions)
         except AssertionError:
             # Diagnosis only: the failure is reported and re-raised unchanged.
             lines.append(format_report(diagnose_prefix(run, last["run"])))
+            if external:
+                close = closes.loc[run.evidence.timestamp.eq(last["stamp"])].iloc[0]
+                lines += external_rows_report(external, {k: truncate(v, close, column="available_at")
+                                                         for k, v in external.items()})
             raise
     lines.append(f"PASS {ticker} {timeframe}: bars={n}, results={stats['results']}, "
                  f"transitions={stats['transitions_checked']}, prefix_cuts="
@@ -127,6 +132,17 @@ def synthetic_intraday(daily: pd.DataFrame, start: str, seed: int, timeframe: st
                         "close": close, "volume": rng.uniform(1e4, 1e5, len(stamps))})
     end = (daily.timestamp.iloc[-1] + pd.Timedelta(days=1)).isoformat()
     return normalize_bars(raw.set_index(["symbol", "timestamp"]), start, end, timeframe, "regular")
+
+
+def synthetic_macro(daily: pd.DataFrame) -> pd.DataFrame:
+    """FRED-CSV-like macro rows: current revisions, ``asof_safe=False``, available
+    only at download time (after the last bar), as fetched without FRED_API_KEY."""
+    fetched = daily.timestamp.iloc[-1] + pd.Timedelta(days=2)
+    dates = pd.date_range(daily.timestamp.iloc[0], daily.timestamp.iloc[-1], freq="W-WED")
+    return pd.DataFrame([{"series": name, "observation_date": d, "release_date": pd.NaT,
+                          "available_at": fetched, "value": 1.0, "unit": "USD millions",
+                          "source": name, "asof_safe": False}
+                         for name in ("fed_assets", "tga", "rrp") for d in dates])
 
 
 def weekly_from_daily(daily: pd.DataFrame, end: str) -> pd.DataFrame:
@@ -237,11 +253,12 @@ def main():
             late = data["SYN_A"].timestamp.iloc[int(len(data["SYN_A"])*0.8)].strftime("%Y-%m-%d")
             for k, ticker in enumerate(("SYN_A", "SYN_B", "SYN_C", "SYN_D")):
                 weekly = weekly_from_daily(data[ticker], end)
-                context = {"1Week": weekly}
+                context, external = {"1Week": weekly}, None
                 if ticker == "SYN_A":  # intraday context only for the last 20% of the sample
                     context["4Hour"] = synthetic_intraday(data[ticker], late, 300+k, "4Hour")
                     context["1Hour"] = synthetic_intraday(data[ticker], late, 400+k, "1Hour")
-                run, _ = validate(ticker, "1Day", data[ticker], benchmark, context, None, lines,
+                    external = {"macro_observations": synthetic_macro(data[ticker])}
+                run, _ = validate(ticker, "1Day", data[ticker], benchmark, context, external, lines,
                                   debug_prefix=args.debug_prefix)
                 runs.append(run)
             out, label = OUT/"synthetic", "validación SINTÉTICA (sin datos de mercado)"

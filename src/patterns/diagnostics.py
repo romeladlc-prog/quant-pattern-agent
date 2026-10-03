@@ -190,3 +190,23 @@ def format_report(report: dict, limit: int = 12) -> str:
                  f"fit diagnostics equal: {report['quant_fit_diagnostics_equal']}; "
                  f"non-converged fits up to T: {len(report['not_converged_fits_upto_T'])}")
     return "\n".join(lines)
+
+
+def external_rows_report(full_inputs: dict | None, prefix_inputs: dict | None, limit: int = 1) -> list[str]:
+    """Per external family: rows given to each run and the first row only the full run saw."""
+    lines = []
+    for family in sorted(set(full_inputs or {}) | set(prefix_inputs or {})):
+        full, prefix = (full_inputs or {}).get(family), (prefix_inputs or {}).get(family)
+        if full is None or prefix is None:
+            lines.append(f"  external {family}: supplied to {'full' if prefix is None else 'prefix'} only")
+            continue
+        lines.append(f"  external {family}: rows prefix/full = {len(prefix)}/{len(full)}")
+        extra = full.loc[~full.index.isin(prefix.index)]
+        if extra.empty:
+            continue
+        columns = [c for c in ("series", "observation_date", "release_date", "available_at", "asof_safe")
+                   if c in extra]
+        first = extra.sort_values("available_at").head(limit) if "available_at" in extra else extra.head(limit)
+        for row in first[columns].to_dict("records"):
+            lines.append(f"    first row only in full: {row}")
+    return lines

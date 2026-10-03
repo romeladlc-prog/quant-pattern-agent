@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-10-03 — Fase 7.1 (cont.): `macro_status` causal por barra
+
+- Causa 3, hallada con datos reales: sin `FRED_API_KEY` las filas del CSV de FRED tienen `available_at` = hora de descarga. Truncadas a T desaparecían (`missing`), pero la ejecución completa marcaba todas las barras como `excluded_not_asof_safe`.
+- `build_external_context` decide `macro_status` y `news_quality` por barra con filas `available_at <= cierre`. Estados: `missing` (no suministrado), `not_yet_available`, `excluded_not_asof_safe`, `asof_safe`.
+- `--debug-prefix` muestra la primera fila externa que solo ve la ejecución completa. `--synthetic` añade macro tipo FRED CSV en SYN_A.
+- `tests/test_macro_context_causality.py`: 10 tests (108 en total).
+
 ## 2026-10-02 — Fase 7.1: causa raíz del fallo de prefijo con datos reales
 
 - Causa 1: un timeframe de contexto sin barras cerradas en T (4Hour/1Hour, descargados solo 400/90 días) se omitía en la ejecución hasta T y se adjuntaba en la completa, así que `mtf_context` cambiaba de claves en todas las barras pasadas. Ahora siempre se adjunta, con valores ausentes (`attach_empty_timeframe`).
