@@ -140,8 +140,11 @@ def main():
              "Local level tuvo menos parámetros en el borde y menor RMSE de innovación; "
              "es la especificación Kalman más estable aquí. No estima slope; "
              "local linear trend conserva utilidad descriptiva del slope, con advertencia de borde.", "",
-             "HMM2 y Markov2 convergieron en los cinco activos. HMM3 y Markov3 "
-             "no alcanzaron estabilidad uniforme. Las etiquetas de estados son arbitrarias.", "",
+             "Regímenes (legacy_pre_revalidation): la fila converged usa el flag de hmmlearn, "
+             "que también es True si el EM baja o agota iteraciones, y un solo corte por activo. "
+             "La revalidación está en validate_regime_reproducibility.py "
+             "(phase4_1_revalidation/summary.md). HMM3 y Markov3 siguen experimentales. "
+             "Las etiquetas de estados son arbitrarias.", "",
              "Los change points son retrospectivos; robusto significa que apareció "
              "en al menos 5 de 9 combinaciones de penalización y segmento dentro de "
              "una agrupación de hasta ocho días calendario. La fracción de filas "

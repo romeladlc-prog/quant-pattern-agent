@@ -33,4 +33,12 @@ Cada fold conserva fecha inicial y final de entrenamiento, fecha de prueba, fore
 
 Tras el audit, ejecuta `.\.venv312\Scripts\python.exe summarize_phase4_1.py` para actualizar `phase4_1_results/summary.md` y `stability_scores.csv`. Las puntuaciones de Kalman, regímenes y PELT usan sus diagnósticos propios, identificados en el CSV; no son directamente comparables con una mejora de forecast. El audit de regímenes usa el último corte de entrenamiento por activo, mientras los forecasts y Kalman se evalúan en ocho folds por activo.
 
+**Revalidación de regímenes (tras Fase 7).** Los resultados de HMM/Markov de este audit son `legacy_pre_revalidation`. No sobrescribas `phase4_1_results/`: ejecuta
+
+```powershell
+.\.venv312\Scripts\python.exe -u validate_regime_reproducibility.py *> phase4_1_revalidation.log
+```
+
+Escribe en `phase4_1_revalidation/` y compara con `phase4_1_results/regimes.csv` si existe. Ver [docs/phases/PHASE_4_1_REVALIDATION.md](docs/phases/PHASE_4_1_REVALIDATION.md).
+
 Alpaca requiere las credenciales de `.env`. La consulta termina antes del día actual para excluir datos SIP recientes. Si una descarga falla, el audit se detiene y no atribuye resultados de otro universo a los cinco activos pedidos.
