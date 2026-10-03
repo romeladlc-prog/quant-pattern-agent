@@ -11,8 +11,8 @@ Decisiones tomadas con el audit de Fase 4.1 sobre 756 fechas comunes de ARM, NVD
 | HAR-RV | Benchmark de volatilidad. | RMSE promedio 0.00806, inferior a las familias ARCH en esta muestra. |
 | Kalman local level | Especificación recomendada para nivel. | 3% de ajustes en borde; RMSE de innovación 10.76, menor que local linear trend. No produce slope. |
 | Kalman local linear trend | Solo para describir slope, con advertencia. | 57% de ajustes en borde; RMSE de innovación 11.47. |
-| HMM2 y Markov2 | Conservar como descripciones de regímenes. | Convergieron en los cinco activos; el audit de regímenes usa el último corte por activo, no una prueba de estabilidad futura. Etiquetas arbitrarias. |
-| HMM3 y Markov3 | No considerar estables. | HMM3 tuvo acuerdo entre inicializaciones irregular; Markov3 convergió en 2/5 activos. |
+| HMM2 y Markov2 | Conservar como descripciones de regímenes (sin cambios hasta revalidar). | `legacy_pre_revalidation`: "convergieron en los cinco activos" con el flag permisivo de hmmlearn y Markov sin RNG reproducible; un solo corte por activo, no una prueba de estabilidad futura. Etiquetas arbitrarias. Ver [PHASE_4_1_REVALIDATION.md](phases/PHASE_4_1_REVALIDATION.md). |
+| HMM3 y Markov3 | No considerar estables (siguen experimentales). | `legacy_pre_revalidation`: HMM3 tuvo acuerdo entre inicializaciones irregular; Markov3 convergió en 2/5 activos. |
 | Hurst, Shannon y permutation entropy | Features descriptivas. | No son motores de decisión ni señales. |
 | PELT change points | Descripción retrospectiva. | Fracción robusta ante parámetros: RV20 0.790, slope Kalman 0.814, retornos 0.466. |
 
@@ -73,8 +73,11 @@ Las conclusiones de GARCH y Markov2 de la tabla de Fase 4.1 se consideran **prov
 
 - **Markov2/Markov3** (`fit_markov_regimes`, usado por `validate_models.py` y `validate_walk_forward.py`): con statsmodels ≥ 0.15 ahora se pasa `rng=random_state`. Las corridas de Fase 4/4.1 con statsmodels ≥ 0.15 no eran reproducibles, así que convergencia, parámetros, estados y la fila de regímenes de `summarize_phase4_1.py` pueden cambiar. Con statsmodels < 0.15 el código no cambia.
 - **GARCH/EGARCH/GJR-GARCH en Fase 4/4.1** (`arch_one_step`): **no se modificó**. Sigue usando el filtro fijo de `arch`, cuyos límites de varianza usan toda la muestra suministrada (fuga estimada ~2e-7 en el Pattern Engine). La corrección causal de Fase 7 solo aplica a `src/patterns/quant_context.py`. Los RMSE 0.00490/0.00506 no deberían cambiar al repetir, pero conservan esa fuga mínima; corregirla en Fase 4 sería un cambio metodológico aparte, no hecho.
-- Sin cambios: AutoReg, ARIMA, HAR-RV, Kalman, HMM2/HMM3 y PELT (solo añaden `model_status`).
+- **HMM2/HMM3** (Fase 7.1, PR #4): el ajuste usa un hilo OpenMP (antes KMeans de hmmlearn no era reproducible bit a bit) y `fit_quality` distingue la convergencia real del flag permisivo de hmmlearn (`monitor_.converged` es True aunque el EM baje o agote iteraciones). Los `converged` de 4.1 usaban ese flag.
+- Sin cambios: AutoReg, ARIMA, HAR-RV, Kalman y PELT (solo añaden `model_status`).
 
-Revalidar con `validate_models.py`, `validate_walk_forward.py` y `summarize_phase4_1.py` (ver [PHASE4_1_SETUP.md](../PHASE4_1_SETUP.md)) y comparar con la Fase 4.1 original.
+Los resultados de regímenes de 4.1 (HMM2/HMM3/Markov2/Markov3) quedan como **`legacy_pre_revalidation`**. La revalidación específica es `validate_regime_reproducibility.py`: 8 folds walk-forward más el corte original, convergencia estricta, reproducibilidad, sensibilidad a semilla y acuerdo entre folds. Ver [PHASE_4_1_REVALIDATION.md](phases/PHASE_4_1_REVALIDATION.md). Convergencia, reproducibilidad y estabilidad son conceptos distintos, y `converged=True` no significa que el modelo sea útil para predecir.
+
+Revalidar regímenes con `validate_regime_reproducibility.py`, y los forecasts con `validate_models.py`, `validate_walk_forward.py` y `summarize_phase4_1.py` (ver [PHASE4_1_SETUP.md](../PHASE4_1_SETUP.md)) y comparar con la Fase 4.1 original.
 
 El `stability_score` de Fase 4.1 es técnico y usa criterios distintos para forecasts y diagnósticos. No se debe leer como probabilidad de acierto. El archivo local `phase4_1_results/stability_scores.csv` se regenera con `summarize_phase4_1.py`; no se versiona porque es un resultado de ejecución.

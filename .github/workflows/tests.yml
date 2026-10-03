@@ -27,5 +27,7 @@ jobs:
         run: python -m pytest -q
       - name: Phase 7 synthetic validation (offline, prefix causality checks)
         run: python validate_patterns.py --synthetic
+      - name: Phase 4.1 regime revalidation, synthetic smoke run (offline)
+        run: python validate_regime_reproducibility.py --synthetic --assets ARM --repeats 2
       - name: Byte-compile sources and validators
         run: python -m compileall -q src tests app.py main.py validate_*.py summarize_phase4_1.py

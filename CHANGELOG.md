@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-10-03 — Fase 4.1-R: revalidación de regímenes preparada (sin resultados reales)
+
+- `validate_regime_reproducibility.py` y `src/validation/regime_revalidation.py`: HMM2/Markov2 en 8 folds walk-forward más el corte original de 4.1, con convergencia estricta (`converged`/`not_converged`/`fit_failed`), reproducibilidad entre repeticiones con tolerancias documentadas, sensibilidad a semilla y acuerdo entre folds. Salidas en `phase4_1_revalidation/`. `phase4_1_results/` no se modifica.
+- Resultados de regímenes de 4.1 marcados `legacy_pre_revalidation` en la documentación y en el texto de `summarize_phase4_1.py`. La decisión sobre HMM2/Markov2 no cambia hasta tener datos reales.
+- `tests/test_regime_revalidation.py` (8 tests) y paso sintético en CI.
+
 ## 2026-10-03 — Fase 7.1 (cont.): `macro_status` causal por barra
 
 - Causa 3, hallada con datos reales: sin `FRED_API_KEY` las filas del CSV de FRED tienen `available_at` = hora de descarga. Truncadas a T desaparecían (`missing`), pero la ejecución completa marcaba todas las barras como `excluded_not_asof_safe`.
