@@ -53,6 +53,8 @@ Regla: **si se añaden barras futuras, el estado y el score de un patrón en una
 
 1. **Markov2 no era determinista.** statsmodels 0.15 ignora `np.random.seed` y usa su propio `rng`, así que `fit_markov_regimes` daba ajustes distintos en cada ejecución. Ahora pasa `rng=random_state`. Es un cambio mínimo en `src/models/regime_models.py` que también corrige la reproducibilidad de Fase 4.
 2. **GARCH con filtro fijo de `arch`.** Ese filtro calcula límites de varianza con toda la muestra suministrada, una fuga pequeña (~2e-7) que cambiaba valores pasados. Se sustituyó por la recursión GARCH(1,1) explícita (`garch_filter`), con backcast solo de entrenamiento y parámetros estimados por `arch`.
+3. **Esquema de `mtf_context` dependiente de datos futuros** (Fase 7.1, hallado con datos reales). Un timeframe de contexto sin barras en T se omitía. Ahora se adjunta siempre, con valores ausentes.
+4. **HMM2 no reproducible bit a bit** (Fase 7.1). KMeans de sklearn con OpenMP multihilo dentro de hmmlearn. El ajuste usa un hilo OpenMP. Ver [PHASE_7_1_PREFIX_FIX.md](PHASE_7_1_PREFIX_FIX.md).
 
 ## PatternResult
 
@@ -62,7 +64,8 @@ Hay uno por barra y por patrón. Campos principales:
 - Scores: `score` y `score_structure|volatility|regime|context|momentum`.
 - Evidencia: `evidence_for`, `evidence_against`, `required_conditions_met|missing` y `optional_conditions_met`.
 - Contexto: `regime_context`, `volatility_context`, `structure_context`, `external_context`, `mtf_context`.
-- Otros: `details` (por ejemplo, nivel y tiempos del breakout) y `notes`. `notes` incluye `not_evaluable:...` con la evidencia sin datos.
+- Otros: `details` (por ejemplo, nivel y tiempos del breakout) y `notes`. `notes` incluye `not_evaluable:...` con la evidencia sin datos y `model_not_converged:...` cuando el ajuste vigente de HMM2, Markov2, Kalman o GARCH no convergió (banderas `*_fit_converged` en `regime_context`/`volatility_context`).
+- `mtf_context` tiene una clave por cada timeframe de contexto pedido, aunque aún no tenga barras (valores `None`).
 
 `score_kind = "convergence_score"`: **mide convergencia de evidencia; no es probabilidad de éxito, retorno esperado ni señal.**
 
@@ -182,7 +185,8 @@ Los episodios con `is_open=True` siguen vivos al final de la muestra y su estado
   - recencia de breakout;
   - nombres prohibidos (probability, signal, buy…);
   - **prefijo:** en tres cortes T (50%, 75% y 90% de la muestra), todos los insumos (barras, benchmark, otros timeframes y contexto externo) se truncan a lo conocido en T, y los resultados ≤ T deben ser idénticos a los de la ejecución completa. Si alguno cambia, la validación falla.
-- **`--synthetic`** ejecuta lo mismo sin red sobre 4 series sintéticas. Sus métricas describen datos sintéticos, no mercados.
+- **`--synthetic`** ejecuta lo mismo sin red sobre 4 series sintéticas (SYN_A con 4Hour/1Hour solo en el último 20%, como la descarga real). Sus métricas describen datos sintéticos, no mercados.
+- **`--debug-prefix`** informa, si falla el prefijo, del primer timestamp, patrón, campo e input divergente y de su módulo, y relanza el mismo error.
 
 ## Limitaciones
 

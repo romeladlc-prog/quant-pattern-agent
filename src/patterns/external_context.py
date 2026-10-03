@@ -4,6 +4,19 @@ Every family is optional. A missing family yields NaN plus a status string,
 never an artificial zero. Macro liquidity enters only from rows with
 ``asof_safe=True`` (ALFRED vintages); news sentiment only when the 7-day
 window has enough scored headlines, otherwise it is left neutral (NaN).
+
+Statuses are decided per bar from rows with ``available_at <= close`` only, so
+appending later rows never changes an earlier bar. ``macro_status``:
+
+* ``missing``: the macro family was not supplied to the engine (``None``:
+  not requested or the download failed). Same for every bar.
+* ``not_yet_available``: supplied, but no as-of-safe history usable at this
+  close (no row available yet, or safe rows that do not yet form a series).
+* ``excluded_not_asof_safe``: rows were available at this close, but none is
+  ``asof_safe`` (current-revision CSV without vintages): excluded on purpose.
+* ``asof_safe``: liquidity computed from as-of-safe rows known at this close.
+
+An empty frame (e.g. a source truncated to T) is "supplied", not missing.
 """
 from __future__ import annotations
 
@@ -51,25 +64,12 @@ def build_external_context(close_times: pd.Series, ticker: str, *, vix: pd.DataF
         out["breadth_sma50"], out["breadth_sma50_change5"] = merged.breadth_sma50, \
             merged.breadth_sma50_change5
         out["breadth_available_at"] = merged.available_at
-    if macro_observations is not None and not macro_observations.empty:
-        safe = macro_observations.loc[macro_observations.asof_safe.astype(bool)]
-        if safe.empty:
-            out["macro_status"] = "excluded_not_asof_safe"
-        else:
-            out["macro_status"] = "asof_safe"
-            for i, stamp in enumerate(pd.to_datetime(close_times, utc=True)):
-                history = macro_liquidity_history(safe, stamp)
-                if history.empty:
-                    out.at[i, "macro_status"] = "not_yet_available"
-                    continue
-                last = history.iloc[-1]
-                out.at[i, "macro_liquidity_state"] = last.liquidity_state
-                out.at[i, "macro_net_liquidity_4w_change"] = last.net_liquidity_4w_change
-            if len(safe) < len(macro_observations):
-                out.attrs["macro_rows_excluded_not_asof_safe"] = int(len(macro_observations)-len(safe))
-    if news is not None and not news.empty:
+    if macro_observations is not None:
+        out["macro_status"] = _macro_status_and_values(out, close_times, macro_observations)
+    if news is not None:  # supplied: per-bar coverage, even when no headline is known yet
         for i, stamp in enumerate(pd.to_datetime(close_times, utc=True)):
-            snap = news_snapshot(news, ticker, stamp)
+            snap = news_snapshot(news, ticker, stamp) if not news.empty else \
+                {"news_count_7d": 0, "news_scored_7d": 0, "news_sentiment_7d": None}
             out.at[i, "news_count_7d"] = snap["news_count_7d"]
             out.at[i, "news_scored_7d"] = snap["news_scored_7d"]
             enough = snap["news_scored_7d"] >= THRESHOLDS["news_min_scored"]
@@ -77,3 +77,34 @@ def build_external_context(close_times: pd.Series, ticker: str, *, vix: pd.DataF
             # Insufficient coverage: neutral (NaN), neither favours nor penalises.
             out.at[i, "news_sentiment_7d"] = snap["news_sentiment_7d"] if enough else np.nan
     return out
+
+
+def _macro_status_and_values(out: pd.DataFrame, close_times: pd.Series,
+                             observations: pd.DataFrame) -> list[str]:
+    """Per-bar macro status from rows known at each close (see module docstring)."""
+    stamps = pd.to_datetime(close_times, utc=True)
+    if observations.empty:
+        return ["not_yet_available"]*len(stamps)
+    available = pd.to_datetime(observations.available_at, utc=True).reset_index(drop=True)
+    safe_mask = observations.asof_safe.astype(bool).to_numpy()
+    safe = observations.loc[safe_mask]
+    if not safe_mask.all():
+        out.attrs["macro_rows_excluded_not_asof_safe"] = int((~safe_mask).sum())
+    statuses = []
+    for i, stamp in enumerate(stamps):
+        known = available.le(stamp).to_numpy()
+        if not known.any():
+            statuses.append("not_yet_available")
+            continue
+        if not (known & safe_mask).any():
+            statuses.append("excluded_not_asof_safe")
+            continue
+        history = macro_liquidity_history(safe, stamp)
+        if history.empty:
+            statuses.append("not_yet_available")
+            continue
+        last = history.iloc[-1]
+        out.at[i, "macro_liquidity_state"] = last.liquidity_state
+        out.at[i, "macro_net_liquidity_4w_change"] = last.net_liquidity_4w_change
+        statuses.append("asof_safe")
+    return statuses

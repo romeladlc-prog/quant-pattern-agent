@@ -277,3 +277,13 @@ def attach_timeframe(frame: pd.DataFrame, other: pd.DataFrame, timeframe: str) -
                            left_on="close_time", right_on=f"{prefix}_close_time",
                            direction="backward", allow_exact_matches=True)
     return merged.sort_values("_pos").drop(columns="_pos").reset_index(drop=True)
+
+
+def attach_empty_timeframe(frame: pd.DataFrame, timeframe: str) -> pd.DataFrame:
+    """Same columns as ``attach_timeframe`` for a timeframe with no closed bars: all missing."""
+    prefix = TIMEFRAME_PREFIX[timeframe]
+    out = frame.copy()
+    out[f"{prefix}_close_time"] = pd.Series(pd.NaT, index=out.index, dtype="datetime64[ns, UTC]")
+    for column in MTF_COLUMNS:
+        out[f"{prefix}_{column}"] = np.nan
+    return out

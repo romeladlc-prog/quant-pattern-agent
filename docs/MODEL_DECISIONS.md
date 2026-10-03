@@ -64,6 +64,8 @@ La implementación de Kalman de Fase 4 no cambió: `fit_local_linear_trend` sigu
 | Divergencias | Una divergencia sola no confirma; hace falta ruptura de neckline. | Requisito de evidencia no divergente. |
 | Multi-timeframe | Solo el estado del timeframe superior entra al score (una evidencia de estructura); los demás son contexto descriptivo. | Sin score multi-timeframe optimizado todavía. |
 | Episodios abiertos | `is_open=True` en `pattern_events.csv`; su estado final es provisional. | La Fase 8 no debe tratarlos como cerrados. |
+| Estado macro (`macro_status`) | Por barra, solo con filas `available_at <= cierre`: `missing` (familia no suministrada), `not_yet_available` (sin historia as-of-safe utilizable aún), `excluded_not_asof_safe` (había filas conocidas, ninguna as-of-safe), `asof_safe`. | Fase 7.1: el estado decidido con toda la muestra cambiaba resultados pasados. El CSV de FRED sin clave (revisión actual) nunca entra en el histórico. |
+| Contexto multi-timeframe y HMM2 | Toda clave de timeframe pedido existe aunque no tenga datos; HMM2 se ajusta con un hilo OpenMP. | Fase 7.1: invariancia por prefijo exacta. |
 
 ### Revalidación pendiente de Fase 4/4.1 (tras Fase 7)
 

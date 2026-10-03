@@ -21,6 +21,7 @@ import pandas as pd
 
 from src.patterns import QuantContextConfig, describe_patterns, run_pattern_engine
 from src.patterns.checks import check_results, prefix_check
+from src.patterns.diagnostics import diagnose_prefix, external_rows_report, format_report
 from src.patterns.evidence import bar_close_times, complete_bars
 from src.security import redact_secrets
 
@@ -50,7 +51,8 @@ def run_one(ticker, timeframe, bars, benchmark, context, external):
                               external_inputs=external)
 
 
-def validate(ticker, timeframe, bars, benchmark, context, external, lines, cuts=(0.5, 0.75, 0.9)):
+def validate(ticker, timeframe, bars, benchmark, context, external, lines, cuts=(0.5, 0.75, 0.9),
+             debug_prefix=False):
     run = run_one(ticker, timeframe, bars, benchmark, context, external)
     stats = check_results(run)
     n = len(run.evidence)
@@ -67,7 +69,25 @@ def validate(ticker, timeframe, bars, benchmark, context, external, lines, cuts=
                        truncate(benchmark, close, timeframe) if benchmark is not None else None,
                        ctx, ext)
 
-    reports = prefix_check(run, prefix_run, positions)
+    if not debug_prefix:
+        reports = prefix_check(run, prefix_run, positions)
+    else:
+        last = {}
+
+        def remembered(stamp):
+            last["run"] = prefix_run(stamp)
+            last["stamp"] = stamp
+            return last["run"]
+        try:
+            reports = prefix_check(run, remembered, positions)
+        except AssertionError:
+            # Diagnosis only: the failure is reported and re-raised unchanged.
+            lines.append(format_report(diagnose_prefix(run, last["run"])))
+            if external:
+                close = closes.loc[run.evidence.timestamp.eq(last["stamp"])].iloc[0]
+                lines += external_rows_report(external, {k: truncate(v, close, column="available_at")
+                                                         for k, v in external.items()})
+            raise
     lines.append(f"PASS {ticker} {timeframe}: bars={n}, results={stats['results']}, "
                  f"transitions={stats['transitions_checked']}, prefix_cuts="
                  + ",".join(str(r["T"]) for r in reports)
@@ -90,6 +110,39 @@ def synthetic_inputs(n=600):
             "high": np.maximum(opens, close)+spread, "low": np.minimum(opens, close)-spread,
             "close": close, "volume": rng.uniform(5e5, 2e6, n)})
     return data
+
+
+def synthetic_intraday(daily: pd.DataFrame, start: str, seed: int, timeframe: str) -> pd.DataFrame:
+    """Regular-session 15-minute walk from ``start`` aggregated like Alpaca data.
+
+    Starts late on purpose, as live 4Hour/1Hour downloads do (400 and 90 days):
+    early prefix cuts see no intraday context at all while the full run does.
+    """
+    from src.data.alpaca_client import normalize_bars
+    days = [d for d in daily.timestamp.dt.tz_convert("America/New_York").dt.date
+            if pd.Timestamp(d) >= pd.Timestamp(start)]
+    stamps = pd.DatetimeIndex([s for d in days for s in pd.date_range(
+        pd.Timestamp(f"{d} 09:30", tz="America/New_York"), periods=26, freq="15min")]).tz_convert("UTC")
+    rng = np.random.default_rng(seed)
+    close = 100*np.exp(np.cumsum(0.003*rng.standard_normal(len(stamps))))
+    opens = np.r_[close[0], close[:-1]]
+    spread = np.abs(0.002*rng.standard_normal(len(stamps)))*close
+    raw = pd.DataFrame({"symbol": "X", "timestamp": stamps, "open": opens,
+                        "high": np.maximum(opens, close)+spread, "low": np.minimum(opens, close)-spread,
+                        "close": close, "volume": rng.uniform(1e4, 1e5, len(stamps))})
+    end = (daily.timestamp.iloc[-1] + pd.Timedelta(days=1)).isoformat()
+    return normalize_bars(raw.set_index(["symbol", "timestamp"]), start, end, timeframe, "regular")
+
+
+def synthetic_macro(daily: pd.DataFrame) -> pd.DataFrame:
+    """FRED-CSV-like macro rows: current revisions, ``asof_safe=False``, available
+    only at download time (after the last bar), as fetched without FRED_API_KEY."""
+    fetched = daily.timestamp.iloc[-1] + pd.Timedelta(days=2)
+    dates = pd.date_range(daily.timestamp.iloc[0], daily.timestamp.iloc[-1], freq="W-WED")
+    return pd.DataFrame([{"series": name, "observation_date": d, "release_date": pd.NaT,
+                          "available_at": fetched, "value": 1.0, "unit": "USD millions",
+                          "source": name, "asof_safe": False}
+                         for name in ("fed_assets", "tga", "rrp") for d in dates])
 
 
 def weekly_from_daily(daily: pd.DataFrame, end: str) -> pd.DataFrame:
@@ -186,6 +239,8 @@ def write_outputs(runs, out: Path, lines: list[str], label: str):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--synthetic", action="store_true", help="offline synthetic run")
+    parser.add_argument("--debug-prefix", action="store_true",
+                        help="on a prefix failure, report the first divergent bar, field and input")
     args = parser.parse_args()
     lines: list[str] = []
     runs = []
@@ -195,9 +250,16 @@ def main():
             data = synthetic_inputs()
             end = (data["SYN_A"].timestamp.iloc[-1] + pd.Timedelta(days=1)).isoformat()
             benchmark = data["SYN_QQQ"]
-            for ticker in ("SYN_A", "SYN_B", "SYN_C", "SYN_D"):
+            late = data["SYN_A"].timestamp.iloc[int(len(data["SYN_A"])*0.8)].strftime("%Y-%m-%d")
+            for k, ticker in enumerate(("SYN_A", "SYN_B", "SYN_C", "SYN_D")):
                 weekly = weekly_from_daily(data[ticker], end)
-                run, _ = validate(ticker, "1Day", data[ticker], benchmark, {"1Week": weekly}, None, lines)
+                context, external = {"1Week": weekly}, None
+                if ticker == "SYN_A":  # intraday context only for the last 20% of the sample
+                    context["4Hour"] = synthetic_intraday(data[ticker], late, 300+k, "4Hour")
+                    context["1Hour"] = synthetic_intraday(data[ticker], late, 400+k, "1Hour")
+                    external = {"macro_observations": synthetic_macro(data[ticker])}
+                run, _ = validate(ticker, "1Day", data[ticker], benchmark, context, external, lines,
+                                  debug_prefix=args.debug_prefix)
                 runs.append(run)
             out, label = OUT/"synthetic", "validación SINTÉTICA (sin datos de mercado)"
         else:
@@ -208,11 +270,13 @@ def main():
             for ticker in ASSETS:
                 benchmark = None if ticker == BENCHMARK else daily[BENCHMARK]
                 context = {"1Week": weekly[ticker], "4Hour": h4[ticker], "1Hour": h1[ticker]}
-                run, _ = validate(ticker, "1Day", daily[ticker], benchmark, context, external, lines)
+                run, _ = validate(ticker, "1Day", daily[ticker], benchmark, context, external, lines,
+                                  debug_prefix=args.debug_prefix)
                 runs.append(run)
                 benchmark = None if ticker == BENCHMARK else h4[BENCHMARK]
                 context = {"1Week": weekly[ticker], "1Day": daily[ticker], "1Hour": h1[ticker]}
-                run, _ = validate(ticker, "4Hour", h4[ticker], benchmark, context, external, lines)
+                run, _ = validate(ticker, "4Hour", h4[ticker], benchmark, context, external, lines,
+                                  debug_prefix=args.debug_prefix)
                 runs.append(run)
             out, label = OUT, "validación con datos Alpaca"
         write_outputs(runs, out, lines, label)
